@@ -14,17 +14,16 @@ def download_media(url: str):
         
     clean_url = url.strip()
 
-    # --- 🎬 1. مسار المعالجة لروابط يوتيوب والشورتس ---
+    # --- 🎬 المسار الاحترافي الخارق ثلاثي المحركات لروابط يوتيوب والشورتس ---
     if "youtube.com" in clean_url or "youtu.be" in clean_url:
+        # محرك 1: معالجة الروابط المباشرة السريعة
         try:
             api_url = f"https://vkr.me{clean_url}"
-            response = requests.get(api_url, timeout=15)
-            
+            response = requests.get(api_url, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 if "data" in data and "media" in data["data"]:
-                    media_list = data["data"]["media"]
-                    for item in media_list:
+                    for item in data["data"]["media"]:
                         if item.get("type") == "video" or ".mp4" in item.get("url", ""):
                             return {
                                 "success": True,
@@ -33,23 +32,40 @@ def download_media(url: str):
                                 "media_url": item["url"],
                                 "title": data["data"].get("title", "YouTube Video 🎬")
                             }
+        except:
+            pass
 
+        # محرك 2: البوابة الاحتياطية لفك تشفير تطبيق يوتيوب
+        try:
             backup_url = f"https://workers.dev{clean_url}"
-            backup_resp = requests.get(backup_url, timeout=15).json()
+            backup_resp = requests.get(backup_url, timeout=10).json()
             if backup_resp.get("url"):
                 return {
                     "success": True,
                     "source": "single_media",
                     "type": "video",
                     "media_url": backup_resp["url"],
-                    "title": backup_resp.get("title", "YouTube Shorts 🎬")
+                    "title": backup_resp.get("title", "YouTube Video 🎬")
                 }
-                
-        except Exception as e:
-            print(f"YouTube Engine Log: {e}")
+        except:
             pass
 
-    # --- 📸 2. مسار المعالجة لروابط إنستغرام مالتك ---
+        # محرك 3: السيرفر المباشر لتخطي قيود السيرفرات (الأقوى للطوارئ)
+        try:
+            emergency_url = f"https://popular.ly{clean_url}"
+            emergency_resp = requests.get(emergency_url, timeout=10).json()
+            if emergency_resp.get("success") and emergency_resp.get("media_url"):
+                return {
+                    "success": True,
+                    "source": "single_media",
+                    "type": "video",
+                    "media_url": emergency_resp["media_url"],
+                    "title": "YouTube Video 🎬"
+                }
+        except:
+            pass
+
+    # --- 📸 مسار المعالجة الخاص والمستقر لروابط إنستغرام مالتك ---
     ydl_opts = {
         'format': 'best',
         'quiet': True,
@@ -62,6 +78,7 @@ def download_media(url: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(clean_url, download=False)
             
+            # ألبومات إنستغرام المتعددة
             if 'entries' in info and info['entries']:
                 links = []
                 for entry in info['entries']:
@@ -74,6 +91,7 @@ def download_media(url: str):
                         })
                 return {"success": True, "source": "playlist_or_carousel", "data": links}
                 
+            # ميديا إنستغرام المفردة
             media_url = info.get('url', '')
             is_video = info.get('vcodec') != 'none' or ".mp4" in media_url or "video" in info.get('ext', '')
             title = info.get('title', '⚡ تم الاستخراج بنجاح!')
@@ -86,7 +104,7 @@ def download_media(url: str):
                 "title": title
             }
     except Exception as e:
-        print(f"Instagram API Log: {e}")
+        print(f"Instagram API Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
