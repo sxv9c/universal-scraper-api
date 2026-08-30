@@ -1,98 +1,67 @@
 import os
 import re
-import uvicorn
 import requests
-from fastapi import FastAPI, HTTPException
-import yt_dlp
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-app = FastAPI(title="Universal Downloader API الخارق")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+MY_API_URL = os.getenv("MY_API_URL") 
 
-@app.get("/download")
-def download_media(url: str):
-    if not url:
-        raise HTTPException(status_code=400, detail="الرابط مطلوب")
-        
-    clean_url = url.strip()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 أهلاً بك في البوت الخارق المعتمد على سيرفرنا المنفصل!\n\n"
+        "أرسل لي أي رابط عام من يوتيوب أو انستغرام وسأقوم بتحميله فوراً."
+    )
 
-    # --- 🎬 1. مسار المعالجة الاحترافي والتلقائي لروابط يوتيوب والشورتس ---
-    if "youtube.com" in clean_url or "youtu.be" in clean_url:
-        try:
-            # البوابة السريعة والمفتوحة لتخطي حظر السيرفرات في يوتيوب
-            api_url = f"https://vkr.me{clean_url}"
-            response = requests.get(api_url, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if "data" in data and "media" in data["data"]:
-                    media_list = data["data"]["media"]
-                    for item in media_list:
-                        if item.get("type") == "video" or ".mp4" in item.get("url", ""):
-                            return {
-                                "success": True,
-                                "source": "single_media",
-                                "type": "video",
-                                "media_url": item["url"],
-                                "title": data["data"].get("title", "YouTube Video 🎬")
-                            }
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    
+    if not re.match(r'(https?://)?(www\.)?(instagram\.com|youtube\.com|youtu\.be)', url):
+        await update.message.reply_text("❌ عذراً، البوت يدعم روابط يوتيوب وإنستغرام العامة فقط.")
+        return
 
-            # محرك الطوارئ الثاني المباشر لليوتيوب
-            backup_url = f"https://workers.dev{clean_url}"
-            backup_resp = requests.get(backup_url, timeout=15).json()
-            if backup_resp.get("url"):
-                return {
-                    "success": True,
-                    "source": "single_media",
-                    "type": "video",
-                    "media_url": backup_resp["url"],
-                    "title": backup_resp.get("title", "YouTube Shorts 🎬")
-                }
-                
-        except Exception as e:
-            print(f"YouTube Engine Log: {e}")
-            pass
+    status_message = await update.message.reply_text("⚡ جاري إرسال الطلب للسيرفر الخاص بفك التشفير...")
+    request_url = f"{MY_API_URL}/download?url={url}"
 
-    # --- 📸 2. مسار المعالجة الخاص والمستقر لروابط إنستغرام مالتك ---
-    ydl_opts = {
-        'format': 'best',
-        'quiet': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
-    }
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(clean_url, download=False)
-            
-            # حالة الألبومات والمنشورات المتعددة في إنستغرام
-            if 'entries' in info and info['entries']:
-                links = []
-                for entry in info['entries']:
-                    if entry:
-                        entry_url = entry.get('url', '')
-                        is_vid = entry.get('vcodec') != 'none' or ".mp4" in entry_url or "video" in entry.get('ext', '')
-                        links.append({
-                            "url": entry_url,
-                            "type": "video" if is_vid else "image"
-                        })
-                return {"success": True, "source": "playlist_or_carousel", "data": links}
+        response = requests.get(request_url, timeout=40)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success"):
                 
-            # حالة الريلز أو الصور المنفردة في إنستغرام
-            media_url = info.get('url', '')
-            is_video = info.get('vcodec') != 'none' or ".mp4" in media_url or "video" in info.get('ext', '')
-            title = info.get('title', '⚡ تم الاستخراج بنجاح!')
-            
-            return {
-                "success": True, 
-                "source": "single_media",
-                "type": "video" if is_video else "image", 
-                "media_url": media_url,
-                "title": title
-            }
+                if data.get("source") == "playlist_or_carousel":
+                    for item in data["data"]:
+                        if item["type"] == "video":
+                            await update.message.reply_video(video=item["url"])
+                        else:
+                            await update.message.reply_photo(photo=item["url"])
+                else:
+                    m_url = data["media_url"]
+                    caption_text = f"🎬 **{data.get('title', 'تم الاستخراج!')}**\n\nتم التحميل من السيرفر المنفصل!"
+                    
+                    if data["type"] == "video":
+                        await update.message.reply_video(video=m_url, caption=caption_text, parse_mode="Markdown")
+                    else:
+                        await update.message.reply_photo(photo=m_url, caption=caption_text, parse_mode="Markdown")
+                
+                await status_message.delete()
+            else:
+                await status_message.edit_text("❌ فشل السيرفر في استخراج روابط التحميل.")
+        else:
+            await status_message.edit_text(f"❌ واجه سيرفر الـ API مشكلة. كود الخطأ: {response.status_code}")
     except Exception as e:
-        print(f"Instagram API Log: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error: {e}")
+        await status_message.edit_text("💥 حدث خطأ أثناء الاتصال بسيرفر الـ API المخصص.")
+
+def main():
+    if not TOKEN or not MY_API_URL:
+        print("Error: Missing Environment Variables")
+        return
+
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    main()
