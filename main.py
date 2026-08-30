@@ -1,4 +1,5 @@
 import os
+import re
 import uvicorn
 from fastapi import FastAPI, HTTPException
 import yt_dlp
@@ -10,6 +11,11 @@ def download_media(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="الرابط مطلوب")
         
+    # تنظيف الرابط وإزالة أي زيادات بعد علامة الاستفهام لروابط يوتيوب المختصرة
+    clean_url = url.strip()
+    if "youtu.be" in clean_url and "?" in clean_url:
+        clean_url = clean_url.split("?")[0]
+
     ydl_opts = {
         'format': 'best',
         'quiet': True,
@@ -20,7 +26,7 @@ def download_media(url: str):
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(clean_url, download=False)
             
             # فحص إذا كان الرابط ألبوم انستغرام أو قائمة تشغيل يوتيوب
             if 'entries' in info and info['entries']:
@@ -35,9 +41,9 @@ def download_media(url: str):
                         })
                 return {"success": True, "source": "playlist_or_carousel", "data": links}
                 
-            # إذا كانت ميديا مفردة (فيديو، شورتس، ريلز، صورة)
+            # إذا كانت ميديا مفردة (فيديو يوتيوب، شورتس، ريلز، صورة)
             media_url = info.get('url', '')
-            is_video = info.get('vcodec') != 'none' or ".mp4" in media_url or "video" in info.get('ext', '')
+            is_video = info.get('vcodec') != 'none' or ".mp4" in media_url or "video" in info.get('ext', '') or "youtube" in clean_url or "youtu.be" in clean_url
             title = info.get('title', '⚡ تم الاستخراج بنجاح!')
             
             return {
@@ -48,6 +54,7 @@ def download_media(url: str):
                 "title": title
             }
     except Exception as e:
+        print(f"API Error details: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
