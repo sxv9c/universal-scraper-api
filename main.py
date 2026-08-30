@@ -1,10 +1,14 @@
 import os
 import re
 import uvicorn
-import requests
 from fastapi import FastAPI, HTTPException
+import yt_dlp
 
 app = FastAPI(title="Universal Downloader API الخارق")
+
+@app.get("/")
+def home():
+    return {"status": "running", "message": "API الخاص بك يعمل بنجاح، استخدم مسار /download"}
 
 @app.get("/download")
 def download_media(url: str):
@@ -12,65 +16,65 @@ def download_media(url: str):
         raise HTTPException(status_code=400, detail="الرابط مطلوب")
         
     clean_url = url.strip()
+    is_youtube = "youtube.com" in clean_url or "youtu.be" in clean_url
 
-    # --- 🛠️ بوابة المعالجة الخارقة الموحدة (يوتيوب + إنستغرام) ---
+    # تنظيف روابط يوتيوب من أي معاملات زائدة لضمان القبول
+    if is_youtube and "?" in clean_url:
+        # إبقاء المعرف الأساسي للفيديو وحذف معاملات التتبع لعام 2026
+        if "youtu.be" in clean_url:
+            clean_url = clean_url.split("?")[0]
+
+    # إعدادات برمجية خارقة تحاكي التطبيقات الرسمية وتتخطى جدار حماية يوتيوب وإنستغرام
+    ydl_opts = {
+        'format': 'best',
+        'quiet': True,
+        'no_warnings': True,
+        'youtube_include_dash_manifest': False,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'], # محاكاة تشغيل من تطبيق الهاتف الرسمي لتفادي حظر السيرفرات
+                'skip': ['dash', 'hls']
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+    }
+    
     try:
-        # استخدام بوابة سحابية عالمية ومستقرة تتخطى حظر السيرفرات تلقائياً
-        api_url = f"https://vkr.me{clean_url}"
-        response = requests.get(api_url, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(clean_url, download=False)
             
-            # 🎬 فحص إذا كانت البيانات المستلمة لروابط يوتيوب أو ميديا منفردة
-            if "data" in data and "media" in data["data"]:
-                media_data = data["data"]["media"]
-                
-                # إذا كانت الميديا عبارة عن ألبوم (انستغرام متعدد)
-                if isinstance(media_data, list):
-                    links = []
-                    for item in media_data:
-                        m_url = item.get("url")
-                        is_vid = item.get("type") == "video" or ".mp4" in m_url
+            # فحص إذا كان الرابط ألبوم انستغرام أو قائمة تشغيل
+            if 'entries' in info and info['entries']:
+                links = []
+                for entry in info['entries']:
+                    if entry:
+                        entry_url = entry.get('url', '')
+                        is_vid = entry.get('vcodec') != 'none' or ".mp4" in entry_url or "video" in entry.get('ext', '')
                         links.append({
-                            "url": m_url,
+                            "url": entry_url,
                             "type": "video" if is_vid else "image"
                         })
-                    return {"success": True, "source": "playlist_or_carousel", "data": links}
+                return {"success": True, "source": "playlist_or_carousel", "data": links}
                 
-                # إذا كانت ميديا منفردة (فيديو يوتيوب، شورتس، ريلز، صورة)
-                elif isinstance(media_data, dict) or "url" in data["data"]:
-                    # محاولة استخراج الرابط المباشر
-                    m_url = data["data"].get("url") or media_data.get("url")
-                    if m_url:
-                        return {
-                            "success": True,
-                            "source": "single_media",
-                            "type": "video" if ("youtube" in clean_url or "youtu.be" in clean_url or ".mp4" in m_url) else "image",
-                            "media_url": m_url,
-                            "title": data["data"].get("title", "Universal Media 🎬")
-                        }
-
-        # --- 🚀 المحرك الاحتياطي المباشر لليوتيوب وإنستغرام ---
-        backup_url = f"https://workers.dev{clean_url}" if "instagram" in clean_url else f"https://workers.dev{clean_url}"
-        backup_resp = requests.get(backup_url, timeout=15).json()
-        
-        if backup_resp.get("url") or backup_resp.get("media_url"):
-            m_url = backup_resp.get("url") or backup_resp.get("media_url")
+            # إذا كانت ميديا مفردة (فيديو يوتيوب، شورتس، ريلز، صورة)
+            media_url = info.get('url', '')
+            is_video = info.get('vcodec') != 'none' or ".mp4" in media_url or "video" in info.get('ext', '') or is_youtube
+            title = info.get('title', '⚡ تم الاستخراج بنجاح!')
+            
             return {
-                "success": True,
+                "success": True, 
                 "source": "single_media",
-                "type": "video",
-                "media_url": m_url,
-                "title": backup_resp.get("title", "📥 تم التحميل بنجاح!")
+                "type": "video" if is_video else "image", 
+                "media_url": media_url,
+                "title": title
             }
-
     except Exception as e:
-        print(f"Global Scraper Engine Error: {e}")
-        pass
-
-    # إذا فشلت جميع المحركات السحابية بسبب جودة الرابط أو الخصوصية
-    raise HTTPException(status_code=500, detail="فشل السيرفر في فك التشفير. تأكد أن الحساب عام (Public).")
+        print(f"API Error details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
