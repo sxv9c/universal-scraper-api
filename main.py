@@ -11,19 +11,30 @@ def download_media(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="الرابط مطلوب")
         
-    # تنظيف الرابط وإزالة أي زيادات بعد علامة الاستفهام لروابط يوتيوب المختصرة
     clean_url = url.strip()
+    # تنظيف روابط يوتيوب المختصرة من المعاملات الزائدة
     if "youtu.be" in clean_url and "?" in clean_url:
         clean_url = clean_url.split("?")[0]
 
+    # إعدادات برمجية خارقة لكسر حماية يوتيوب ومحاكاة الأجهزة الذكية
     ydl_opts = {
         'format': 'best',
         'quiet': True,
         'no_warnings': True,
+        'youtube_include_dash_manifest': False,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web'], # محاكاة تشغيل من تطبيق الهاتف الرسمي
+                'skip': ['dash', 'hls']
+            }
+        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
         }
     }
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(clean_url, download=False)
